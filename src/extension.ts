@@ -3,6 +3,39 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { json } from "stream/consumers";
+import axios from "axios";
+
+const SERVER_URL = "http://127.0.0.1:5001";
+
+const featureNames = [
+  "Personal Identifiable Information Access",
+  "System File Access",
+  "Runtime Process Creation",
+  "Network Acess",
+  "Cryptographic Functionalities",
+  "Data Encoding Enabled",
+  "Dynamic Code Generation",
+  "Installs Other Packages",
+  "Accesses Geolocation",
+  "The Code is Minified",
+  "Package has No Content",
+  "Longest Line in Package",
+  "Number of Lines in Package",
+  "The Package has Lisence",
+];
+
+const decorationsMap: { [key: string]: vscode.DecorationOptions } = {};
+
+const alternatingLineDecorationType =
+  vscode.window.createTextEditorDecorationType({
+    backgroundColor: "green", // Set your desired background color for even lines
+  });
+
+const alternatingLineDecorationTypeRed =
+  vscode.window.createTextEditorDecorationType({
+    backgroundColor: "red", // Set your desired background color for odd lines
+  });
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -24,12 +57,42 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  let agree = vscode.commands.registerCommand("myExtension.agree", () => {
+    // Do something when the agree button is clicked.
+  });
+
+  // Register a command for the disagree button.
+  let disagree = vscode.commands.registerCommand("myExtension.disagree", () => {
+    // Do something when the disagree button is clicked.
+  });
+
   //trigger as soon as a project is opened
   vscode.workspace.onDidOpenTextDocument((e) => {
     // vscode.window.showInformationMessage("event triggered: ", e.fileName);
   });
 
+  const agreeStatusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left
+  );
+  agreeStatusBarItem.command = "myExtension.agree";
+
+  // Create a status bar item for the disagree button.
+  const disagreeStatusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left
+  );
+  disagreeStatusBarItem.command = "myExtension.disagree";
+
+  console.log(agreeStatusBarItem, disagreeStatusBarItem);
+
+  setTimeout(() => {
+    agreeStatusBarItem.show();
+    disagreeStatusBarItem.show();
+    console.log("showing");
+  }, 2000);
+
   context.subscriptions.push(disposable);
+  context.subscriptions.push(agree);
+  context.subscriptions.push(disagree);
 }
 
 function searchForPackageJsonFiles(folderPath: string) {
@@ -61,27 +124,88 @@ function searchForPackageJsonFiles(folderPath: string) {
             "package json found: ",
             filePath
           );
-          // If it's a package.json file, read and parse its contents
-          // count++;
-          // vscode.window.showInformationMessage("count: " + count);
-          fs.readFile(filePath, "utf8", (err: any, data) => {
+
+          fs.readFile(filePath, "utf8", async (err: any, data) => {
             if (err) {
               return;
             }
-            vscode.window.showInformationMessage(data, "ok");
+            // vscode.window.showInformationMessage(data, "ok");
+            vscode.window.showInformationMessage(typeof data, "ok");
+            let json = JSON.parse(data);
+            const dependencies = json.dependencies;
+            const devDependencies = json.devDependencies;
+            const decorationsRed: vscode.DecorationOptions[] = [];
+            const decorationsGreen: vscode.DecorationOptions[] = [];
 
-            //mark the alternating lines of package.json in green and red
-            let lines = data.split("\n");
-            let newLines = [];
-            for (let i = 0; i < lines.length; i++) {
-              if (i % 2 === 0) {
-                newLines.push(`<span style="color: green">${lines[i]}</span>`);
-              } else {
-                newLines.push(`<span style="color: red">${lines[i]}</span>`);
+            for (let key in dependencies) {
+              console.log("key: ", key);
+              const res: any = await axios.post(SERVER_URL + "/package", {
+                packages: [key + ":" + dependencies[key]],
+              });
+              console.log("res: ", res.data);
+
+              // const res = {
+              //   data: {
+              //     cloned: "0",
+              //     features: "[0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2905, 3923, 1]",
+              //     finalPrediction: "benign",
+              //     prediction: "benign",
+              //     reproducible: "0",
+              //   },
+              // };
+
+              let { features, ...rest } = res.data;
+              //convert the string features to a number array
+              let convertedFeatures = JSON.parse(features);
+              let featureArray: number[] = [];
+              console.log("rest: ", rest);
+              for (const value of convertedFeatures) {
+                featureArray.push(parseInt(value));
               }
+
+              console.log("features: ", features, typeof features);
+
+              let hoverMessage = "";
+              hoverMessage += assignLabelToFeatures(featureArray);
+
+              hoverMessage += "Prediction: " + res.data.prediction + "\n\n";
+              hoverMessage += "Reproducible: " + res.data.reproducible + "\n\n";
+              hoverMessage += "Cloned: " + res.data.cloned + "\n\n";
+              hoverMessage +=
+                "Final Prediction: " + res.data.finalPrediction + "\n\n";
+
+              const { line, start, end } = findPackageInfo(
+                data,
+                key,
+                dependencies[key]
+              );
+
+              if (line !== null && start !== null && end !== null) {
+                const decoration = {
+                  range: new vscode.Range(
+                    new vscode.Position(line, start),
+                    new vscode.Position(line, end)
+                  ),
+                  hoverMessage: hoverMessage,
+                };
+                if (res.data.finalPrediction === "benign") {
+                  decorationsGreen.push(decoration);
+                } else {
+                  decorationsRed.push(decoration);
+                }
+                decorationsMap[`${key}:${dependencies[key]}`] = decoration;
+              }
+
+              vscode.window.activeTextEditor?.setDecorations(
+                alternatingLineDecorationType,
+                decorationsGreen
+              );
+              vscode.window.activeTextEditor?.setDecorations(
+                alternatingLineDecorationTypeRed,
+                decorationsRed
+              );
+              // console.log("res: ", res.data);
             }
-            let html = newLines.join("<br>");
-            vscode.window.showInformationMessage(html, "ok");
 
             try {
               const packageJson = JSON.parse(data);
@@ -96,6 +220,54 @@ function searchForPackageJsonFiles(folderPath: string) {
       });
     });
   });
+}
+
+function findPackageInfo(
+  data: string,
+  packageName: string,
+  packageVersion: string
+): { line: number | null; start: number | null; end: number | null } {
+  const lines = data.split("\n");
+
+  for (let line = 1; line <= lines.length; line++) {
+    const currentLine = lines[line - 1];
+    const startIndex = currentLine.indexOf(packageName);
+    if (startIndex !== -1) {
+      const endIndex =
+        startIndex + packageName.length + packageVersion.length + 5; // 5 is for the quotes and the colon
+      if (currentLine.includes(packageVersion, startIndex)) {
+        return { line: line - 1, start: startIndex, end: endIndex };
+      }
+    }
+  }
+
+  // Package name and version not found
+  return { line: null, start: null, end: null };
+}
+
+function assignLabelToFeatures(features: number[]): string {
+  let stringifiedLabels: string = "";
+
+  for (let i = 0; i < features.length - 3; i++) {
+    stringifiedLabels +=
+      featureNames[i] + " : " + (features[i] ? "Yes" : "No") + "\n\n";
+  }
+  stringifiedLabels +=
+    featureNames[featureNames.length - 3] +
+    " : " +
+    features[features.length - 3] +
+    "\n\n";
+  stringifiedLabels +=
+    featureNames[featureNames.length - 2] +
+    " : " +
+    features[features.length - 2] +
+    "\n\n";
+  stringifiedLabels +=
+    featureNames[features.length - 1] +
+    " : " +
+    (features[features.length - 1] ? "Yes" : "No") +
+    "\n\n";
+  return stringifiedLabels;
 }
 
 // This method is called when your extension is deactivated
