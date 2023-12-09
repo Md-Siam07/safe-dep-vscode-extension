@@ -120,10 +120,10 @@ function searchForPackageJsonFiles(folderPath: string) {
           // If it's a directory, search for package.json files recursively
           searchForPackageJsonFiles(filePath);
         } else if (file === "package.json") {
-          vscode.window.showInformationMessage(
-            "package json found: ",
-            filePath
-          );
+          // vscode.window.showInformationMessage(
+          //   "package json found: ",
+          //   filePath
+          // );
 
           fs.readFile(filePath, "utf8", async (err: any, data) => {
             if (err) {
@@ -173,6 +173,14 @@ function searchForPackageJsonFiles(folderPath: string) {
               hoverMessage += "Cloned: " + res.data.cloned + "\n\n";
               hoverMessage +=
                 "Final Prediction: " + res.data.finalPrediction + "\n\n";
+              hoverMessage +=
+                res.data.agreedVotes +
+                " out of " +
+                res.data.totalVotes +
+                " people agreed with the prediction" +
+                "\n\n";
+              const url = `http://localhost:3000/?package_name=${key}&package_version=${dependencies[key]}`;
+              hoverMessage += "\n\n[Click here to vote](" + url + ")";
 
               const { line, start, end } = findPackageInfo(
                 data,
@@ -188,7 +196,10 @@ function searchForPackageJsonFiles(folderPath: string) {
                   ),
                   hoverMessage: hoverMessage,
                 };
-                if (res.data.finalPrediction === "benign") {
+                if (
+                  res.data.finalPrediction === "benign" ||
+                  res.data.finalPrediction === "Benign"
+                ) {
                   decorationsGreen.push(decoration);
                 } else {
                   decorationsRed.push(decoration);
