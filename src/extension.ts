@@ -7,6 +7,7 @@ import { json } from "stream/consumers";
 import axios from "axios";
 
 const SERVER_URL = "http://127.0.0.1:5001";
+let timeout: NodeJS.Timeout | null = null;
 
 const featureNames = [
   "Personal Identifiable Information Access",
@@ -54,6 +55,26 @@ export function activate(context: vscode.ExtensionContext) {
       // The code you place here will be executed every time your command is executed
       // Display a message box to the user
       vscode.window.showInformationMessage("Hello World from safe dep!");
+    }
+  );
+
+  vscode.workspace.onDidChangeTextDocument(
+    (e: vscode.TextDocumentChangeEvent) => {
+      if (e.document.fileName.toLowerCase().endsWith("package.json")) {
+        // Clear existing timeout if any
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+
+        // Set a new timeout
+        timeout = setTimeout(() => {
+          // Run your function to search for package.json files
+          searchForPackageJsonFiles(vscode.workspace.rootPath!);
+
+          // Reset the timeout to null
+          timeout = null;
+        }, 2000);
+      }
     }
   );
 
